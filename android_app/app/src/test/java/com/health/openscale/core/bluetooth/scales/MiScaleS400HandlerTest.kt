@@ -67,7 +67,6 @@ class MiScaleS400HandlerTest {
     private val duidKey = "s400_account_duid"
     private val userTypeKey = "s400_account_user_type"
     private val mappedUserKey = "s400_account_app_user_id"
-    private val learnedKey = "s400_account_learned"
 
     /** 24 hex characters, i.e. a 12-byte synthetic token — not a credential. */
     private val tokenHex = "00112233445566778899aabb"
@@ -551,41 +550,6 @@ class MiScaleS400HandlerTest {
         assertThat(MiScaleS400Handler.identityMatches(identity, otherType)).isFalse()
     }
 
-    @Test
-    fun `learned identity round-trips through its persisted form`() {
-        val candidate = MiScaleS400Handler.parseIdentity("1234567890", "2", "1", "7")!!
-
-        val raw = MiScaleS400Handler.learnedIdentityToString(candidate)
-        val parsed = MiScaleS400Handler.parseLearnedIdentity(raw)
-
-        assertThat(raw).isEqualTo("1234567890|2|1|7")
-        assertThat(parsed).isEqualTo(candidate)
-    }
-
-    @Test
-    fun `malformed or out of range learned identity is rejected`() {
-        assertThat(MiScaleS400Handler.parseLearnedIdentity(null)).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("")).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("1234567890|2|1")).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("a|2|1|7")).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("1234567890|256|1|7")).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("1234567890|2|4|7")).isNull()
-        assertThat(MiScaleS400Handler.parseLearnedIdentity("1234567890|2|1|0")).isNull()
-    }
-
-    @Test
-    fun `learned identity candidate follows the result identity and app user`() {
-        val result = S400SpecMeasurementTestAccess.parse(syntheticCsv(0, miid = "5555555555", duid = 4, userType = 1))!!
-
-        val candidate = MiScaleS400Handler.learnedIdentityFor(result, appUser.id)
-
-        assertThat(candidate).isNotNull()
-        assertThat(candidate!!.miid).isEqualTo(5555555555L)
-        assertThat(candidate.duid).isEqualTo(4)
-        assertThat(candidate.userType).isEqualTo(1)
-        assertThat(candidate.appUserId).isEqualTo(appUser.id)
-    }
-
     // ---- management handshake -------------------------------------------------
 
     /** The app-random FRAGMENT_START the handler emits when StandardAuth begins. */
@@ -709,37 +673,6 @@ class MiScaleS400HandlerTest {
         s.deliverResult(key, siid = 8, eiid = 2, status = 2)
 
         assertThat(s.callbacks.published).isEmpty()
-    }
-
-    @Test
-    fun `status 2 result captures identity candidate when no mapping is configured`() {
-        val s = setup(identity = false)
-        val key = s.driveToLogin()
-        s.completeBootstrapTransport()
-        s.deliverBootstrapEcho(key)
-
-        // The scale is on someone's slot but matched no user: the echoed identity is that
-        // slot's, and it is captured (not applied) so the user can confirm it later.
-        s.deliverResult(key, siid = 8, eiid = 2, status = 2,
-            csv = syntheticCsv(2, miid = "5555555555", duid = 4, userType = 1))
-
-        assertThat(s.callbacks.published).isEmpty()
-        assertThat(s.settings.values.keys).containsNoneOf(miidKey, duidKey, userTypeKey, mappedUserKey)
-        assertThat(s.settings.values).containsEntry(learnedKey, "5555555555|4|1|7")
-    }
-
-    @Test
-    fun `status 2 with configured mapping does not overwrite the candidate`() {
-        val s = setup()
-        val key = s.driveToReady()
-
-        // A configured mapping must never be clobbered by a status-2 packet that echoes
-        // a foreign slot's identity.
-        s.deliverResult(key, siid = 8, eiid = 2, status = 2,
-            csv = syntheticCsv(2, miid = "9999999999", duid = 5, userType = 0))
-
-        assertThat(s.callbacks.published).isEmpty()
-        assertThat(s.settings.values.keys).doesNotContain(learnedKey)
     }
 
     @Test
@@ -990,34 +923,19 @@ class MiScaleS400HandlerTest {
     }
 
     @Test
-    fun `identity is captured as an unapplied candidate when no mapping is configured`() {
+    fun `result is dropped and nothing is persisted when no mapping is configured`() {
         val s = setup(identity = false)
         val key = s.driveToLogin()
         s.completeBootstrapTransport()
         s.deliverBootstrapEcho(key)
 
-        // Plausible-looking ids in the packet must not be adopted as configuration,
-        // only stored as a candidate for explicit confirmation in the settings UI.
+        // Plausible-looking ids in the packet must never be adopted or stored.
         s.deliverResult(key, siid = 8, eiid = 2, status = 0,
             csv = syntheticCsv(0, miid = "5555555555", duid = 4, userType = 1))
 
         assertThat(s.callbacks.published).isEmpty()
         assertThat(s.settings.values.keys).containsNoneOf(miidKey, duidKey, userTypeKey, mappedUserKey)
-        assertThat(s.settings.values).containsEntry(learnedKey, "5555555555|4|1|7")
-    }
-
-    @Test
-    fun `candidate is rejected when the device identity is out of range`() {
-        val s = setup(identity = false)
-        val key = s.driveToLogin()
-        s.completeBootstrapTransport()
-        s.deliverBootstrapEcho(key)
-
-        s.deliverResult(key, siid = 8, eiid = 2, status = 0,
-            csv = syntheticCsv(0, miid = "0", duid = 4, userType = 1))
-
-        assertThat(s.callbacks.published).isEmpty()
-        assertThat(s.settings.values.keys).doesNotContain(learnedKey)
+        assertThat(s.settings.values.values.none { it.contains("5555555555") }).isTrue()
     }
 
     @Test

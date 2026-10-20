@@ -454,10 +454,6 @@
     <string name="s400_identity_mapped_user_error">Mapped user ID must be a positive number</string>
     <string name="s400_identity_incomplete">Account mapping incomplete: fill every field to enable switching</string>
     <string name="s400_identity_configured">Account mapping saved (account ••••%1$s)</string>
-    <string name="s400_identity_learned_title">Scale reported identity: account ••••%1$s (slot %2$s, type %3$s)</string>
-    <string name="s400_identity_learned_description">This identity was captured from the scale during a weigh-in with no mapping configured. Nothing was saved. If this is your Xiaomi account, apply it to enable result saving for the user shown in the mapped user ID field.</string>
-    <string name="s400_identity_learned_apply">Apply</string>
-    <string name="s400_identity_learned_discard">Discard</string>
     <string name="bt_s400_missing_identity">S400: Xiaomi account mapping not configured. The scale will not be switched and no measurement will be saved.</string>
     <string name="bt_s400_identity_not_mapped">S400: The configured Xiaomi account belongs to a different openScale user. Select that user or update the mapping.</string>
 
