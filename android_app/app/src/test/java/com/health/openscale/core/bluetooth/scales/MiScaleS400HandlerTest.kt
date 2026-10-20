@@ -712,6 +712,37 @@ class MiScaleS400HandlerTest {
     }
 
     @Test
+    fun `status 2 result captures identity candidate when no mapping is configured`() {
+        val s = setup(identity = false)
+        val key = s.driveToLogin()
+        s.completeBootstrapTransport()
+        s.deliverBootstrapEcho(key)
+
+        // The scale is on someone's slot but matched no user: the echoed identity is that
+        // slot's, and it is captured (not applied) so the user can confirm it later.
+        s.deliverResult(key, siid = 8, eiid = 2, status = 2,
+            csv = syntheticCsv(2, miid = "5555555555", duid = 4, userType = 1))
+
+        assertThat(s.callbacks.published).isEmpty()
+        assertThat(s.settings.values.keys).containsNoneOf(miidKey, duidKey, userTypeKey, mappedUserKey)
+        assertThat(s.settings.values).containsEntry(learnedKey, "5555555555|4|1|7")
+    }
+
+    @Test
+    fun `status 2 with configured mapping does not overwrite the candidate`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        // A configured mapping must never be clobbered by a status-2 packet that echoes
+        // a foreign slot's identity.
+        s.deliverResult(key, siid = 8, eiid = 2, status = 2,
+            csv = syntheticCsv(2, miid = "9999999999", duid = 5, userType = 0))
+
+        assertThat(s.callbacks.published).isEmpty()
+        assertThat(s.settings.values.keys).doesNotContain(learnedKey)
+    }
+
+    @Test
     fun `non compliant user info result is not published`() {
         val s = setup()
         val key = s.driveToReady()

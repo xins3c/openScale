@@ -666,6 +666,21 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         appUserId = settingsGetString(SETTINGS_KEY_MAPPED_USER_ID),
     )
 
+    /**
+     * Persist the device-reported identity of [result] as a pending candidate for the
+     * connection's user. The measurement itself is never published from here: the candidate
+     * only becomes a mapping after explicit confirmation in the settings UI.
+     */
+    private fun captureLearnedIdentity(result: S400SpecMeasurement, user: ScaleUser) {
+        val ownerId = (sessionUser ?: user).id
+        learnedIdentityFor(result, ownerId)?.let { candidate ->
+            settingsPutString(SETTINGS_KEY_LEARNED_IDENTITY, learnedIdentityToString(candidate))
+            logW("S400 result not saved; identity " +
+                "${maskAccountId(candidate.miid.toString())} (duid ${candidate.duid}, " +
+                "type ${candidate.userType}) captured as candidate for user ${candidate.appUserId}")
+        } ?: logW("S400 result not saved and device identity unusable as candidate")
+    }
+
 
     override fun onNotification(characteristic: UUID, data: ByteArray, user: ScaleUser) {
         if (characteristic == loginCharacteristic) {
@@ -848,7 +863,17 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         if (!isPublishableStatus(result.status)) {
             // 2/3 mean the device did not identify this session's user, so crediting the
             // connection's user would be wrong; 6/7 carry no usable report at all.
-            logW("S400 result dropped: device status ${result.status} is not user-attributable")
+            //
+            // Status 2 is the one case worth mining: the packet is still an authenticated
+            // 8.2 emitted by the scale, and its identity fields echo the slot the scale is
+            // currently on. When no mapping is configured yet, that identity is captured as
+            // a pending candidate (never applied automatically), which is how a user whose
+            // scale is already on their Xiaomi slot can onboard without extraction tools.
+            if (result.status == STATUS_USER_NOT_MATCHED && identity == null) {
+                captureLearnedIdentity(result, user)
+            } else {
+                logW("S400 result dropped: device status ${result.status} is not user-attributable")
+            }
             return
         }
 
@@ -862,13 +887,7 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             // the scale may be on another account's slot), but the device-reported identity
             // is captured as a pending candidate. The user applies it explicitly in the
             // settings screen; nothing is written to the identity fields automatically.
-            val ownerId = (sessionUser ?: user).id
-            learnedIdentityFor(result, ownerId)?.let { candidate ->
-                settingsPutString(SETTINGS_KEY_LEARNED_IDENTITY, learnedIdentityToString(candidate))
-                logW("S400 result dropped: no account identity configured; " +
-                    "identity ${maskAccountId(candidate.miid.toString())} (duid ${candidate.duid}, " +
-                    "type ${candidate.userType}) captured for user ${candidate.appUserId}")
-            } ?: logW("S400 result dropped: no account identity configured and device identity unusable")
+            captureLearnedIdentity(result, user)
             return
         }
         if (switchState == SwitchState.REJECTED) {
