@@ -27,11 +27,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -148,6 +150,14 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         private const val SETTINGS_KEY_USER_TYPE = "s400_account_user_type"
         private const val SETTINGS_KEY_MAPPED_USER_ID = "s400_account_app_user_id"
 
+        /**
+         * Identity the device reported on the last un-mapped result, awaiting explicit user
+         * confirmation in the settings UI. Never applied automatically: the scale echoes
+         * whichever account is currently active on it, so the user must confirm that the
+         * candidate belongs to them before it becomes the configured mapping.
+         */
+        private const val SETTINGS_KEY_LEARNED_IDENTITY = "s400_account_learned"
+
         /** Highest `userType` the firmware was observed to use; wider values are rejected. */
         private const val MAX_USER_TYPE = 3
 
@@ -231,11 +241,48 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         internal fun maskAccountId(value: String): String =
             if (value.length <= 4) "••••" else "••••" + value.takeLast(4)
 
+        /** Pipe-delimited persisted form of a learned identity candidate. */
+        internal fun learnedIdentityToString(candidate: S400Identity): String =
+            listOf(
+                candidate.miid.toString(),
+                candidate.duid.toString(),
+                candidate.userType.toString(),
+                candidate.appUserId.toString(),
+            ).joinToString(LEARNED_IDENTITY_SEPARATOR)
+
+        /**
+         * Parse a persisted learned-identity candidate.
+         *
+         * Returns `null` for any malformed or out-of-range input, so a corrupt setting can
+         * never be applied as a mapping. Mirrors the range checks of [parseIdentity].
+         */
+        internal fun parseLearnedIdentity(raw: String?): S400Identity? {
+            val parts = raw?.split(LEARNED_IDENTITY_SEPARATOR) ?: return null
+            if (parts.size != 4) return null
+            return parseIdentity(parts[0], parts[1], parts[2], parts[3])
+        }
+
+        /**
+         * Build a candidate identity from what the device reported in an `event.8.2` result.
+         * The `appUserId` is the openScale user the connection was opened for; the user
+         * confirms it in the settings UI before it becomes the configured mapping.
+         */
+        internal fun learnedIdentityFor(result: S400SpecMeasurement, appUserId: Int): S400Identity? {
+            if (result.miid <= 0) return null
+            if (result.deviceUserId !in 0..0xFF) return null
+            if (result.userType !in 0..MAX_USER_TYPE) return null
+            if (appUserId <= 0) return null
+            return S400Identity(result.miid, result.deviceUserId, result.userType, appUserId)
+        }
+
         /**
          * Distinct channel-management frames the vendor's channel manager sends before
          * it starts StandardAuth. Duplicates/retransmits must not advance this count.
          */
         private const val MANAGEMENT_FRAMES_EXPECTED = 2
+
+        /** Field separator of the persisted learned-identity candidate string. */
+        private const val LEARNED_IDENTITY_SEPARATOR = "|"
 
         /** 4-byte proprietary spec header that precedes every MIoT spec body. */
         private const val SPEC_HEADER_LENGTH = 4
@@ -811,7 +858,17 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         // connection's user is deliberately removed, because a scale that is still on another
         // account's slot echoes *that* account's ids and would otherwise be misfiled here.
         val snapshot = identity ?: run {
-            logW("S400 result dropped: no account identity configured")
+            // No mapping configured yet. The result is still not published (fail closed:
+            // the scale may be on another account's slot), but the device-reported identity
+            // is captured as a pending candidate. The user applies it explicitly in the
+            // settings screen; nothing is written to the identity fields automatically.
+            val ownerId = (sessionUser ?: user).id
+            learnedIdentityFor(result, ownerId)?.let { candidate ->
+                settingsPutString(SETTINGS_KEY_LEARNED_IDENTITY, learnedIdentityToString(candidate))
+                logW("S400 result dropped: no account identity configured; " +
+                    "identity ${maskAccountId(candidate.miid.toString())} (duid ${candidate.duid}, " +
+                    "type ${candidate.userType}) captured for user ${candidate.appUserId}")
+            } ?: logW("S400 result dropped: no account identity configured and device identity unusable")
             return
         }
         if (switchState == SwitchState.REJECTED) {
@@ -1128,6 +1185,57 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             val mappingComplete = miidValid && duidValid && userTypeValid && mappedUserValid
             val mappingStarted = miidInput.isNotEmpty() || duidInput.isNotEmpty() ||
                 userTypeInput.isNotEmpty() || mappedUserInput.isNotEmpty()
+
+            // ---- learned identity candidate ------------------------------------------
+            // A result arrived while no mapping was configured. It was not published;
+            // the device-reported identity is offered here for explicit confirmation.
+            val learnedRaw = settingsGetString(SETTINGS_KEY_LEARNED_IDENTITY)
+            var learnedCandidate by remember { mutableStateOf(parseLearnedIdentity(learnedRaw)) }
+            if (learnedCandidate != null && !mappingComplete) {
+                val candidate = learnedCandidate!!
+                Text(
+                    text = stringResource(
+                        R.string.s400_identity_learned_title,
+                        maskAccountId(candidate.miid.toString()),
+                        candidate.duid.toString(),
+                        candidate.userType.toString(),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = stringResource(R.string.s400_identity_learned_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row {
+                    Button(
+                        onClick = {
+                            settingsPutString(SETTINGS_KEY_MIID, candidate.miid.toString())
+                            settingsPutString(SETTINGS_KEY_DUID, candidate.duid.toString())
+                            settingsPutString(SETTINGS_KEY_USER_TYPE, candidate.userType.toString())
+                            settingsPutString(SETTINGS_KEY_MAPPED_USER_ID, candidate.appUserId.toString())
+                            settingsPutString(SETTINGS_KEY_LEARNED_IDENTITY, "")
+                            miidInput = candidate.miid.toString()
+                            duidInput = candidate.duid.toString()
+                            userTypeInput = candidate.userType.toString()
+                            mappedUserInput = candidate.appUserId.toString()
+                            learnedCandidate = null
+                        }
+                    ) {
+                        Text(stringResource(R.string.s400_identity_learned_apply))
+                    }
+                    TextButton(
+                        onClick = {
+                            settingsPutString(SETTINGS_KEY_LEARNED_IDENTITY, "")
+                            learnedCandidate = null
+                        }
+                    ) {
+                        Text(stringResource(R.string.s400_identity_learned_discard))
+                    }
+                }
+            }
+
             if (mappingComplete) {
                 Text(
                     text = stringResource(R.string.s400_identity_configured, maskAccountId(miidInput)),
