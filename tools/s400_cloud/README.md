@@ -45,11 +45,16 @@ muscle, BMR, impedances...). Other accounts' records are counted, not exported.
 The file holds health data: keep it out of version control (`.gitignore` covers it),
 and delete it after use.
 
-**Status:** `--selftest` passes (cipher, signatures, flattening, privacy filter,
-paging). The history endpoint and request format come from the open-source
-SmartScaleConnect client and have **not** been confirmed against a live account yet.
-It signs with the explicit path because the extractor's `url.split("com")[1]`
-mis-handles paths containing `com` (`/eco/common/...`).
+**Status:** confirmed against a live account (S400 EU, `yunmai.scales.ms104`, served
+through the Xiaomi Home app's `getUserDataByPage`, 50 records, `fromSource` 2). The
+offline `--selftest` also passes (cipher, signatures, flattening, privacy filter, paging).
+Request format taken from the open-source SmartScaleConnect client. It signs with the
+explicit path because the extractor's `url.split("com")[1]` mis-handles paths containing
+`com` (`/eco/common/...`).
+
+Field notes from the live export: Xiaomi's "muscle %" is `slp`, not `smm`/weight; and the
+cloud can hold several records with the same impedance pair for one physical weigh-in, so
+equal impedance alone does not prove two records are the same measurement.
 
 ## Privacy rules these scripts follow
 
