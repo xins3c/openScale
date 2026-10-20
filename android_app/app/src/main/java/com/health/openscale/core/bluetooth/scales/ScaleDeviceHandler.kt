@@ -113,6 +113,9 @@ abstract class ScaleDeviceHandler {
         // Pseudo UUIDs for Classic/SPP
         val CLASSIC_DATA_UUID: UUID =
             UUID.fromString("00000000-0000-0000-0000-00000000C1A5")
+
+        /** ATT MTU before an Exchange MTU exchange completes. */
+        const val DEFAULT_ATT_MTU = 23
     }
     /**
      * Identify whether this handler supports the given scanned device.
@@ -268,6 +271,12 @@ abstract class ScaleDeviceHandler {
         return transport?.getPeripheral()
     }
 
+    /**
+     * ATT MTU the link negotiated, or `null` when it is unknown (no readback available,
+     * or the exchange has not completed). Do not substitute a requested MTU for this.
+     */
+    protected fun negotiatedMtu(): Int? = transport?.negotiatedMtu()
+
     /** Helper to build a 16-bit Bluetooth Base UUID (e.g., `uuid16(0xFFE4)`). */
     protected fun uuid16(short: Int): UUID =
         UUID.fromString(String.format("0000%04x-0000-1000-8000-00805f9b34fb", short))
@@ -342,6 +351,15 @@ abstract class ScaleDeviceHandler {
         fun disconnect()
         fun getPeripheral(): BluetoothPeripheral? = null
         fun hasCharacteristic(service: UUID, characteristic: UUID): Boolean
+
+        /**
+         * ATT MTU the link actually negotiated, or `null` when the transport has no
+         * readback (broadcast, SPP, test doubles).
+         *
+         * Defaulted to `null` so existing transports need no change. Handlers must
+         * size frames from this value instead of assuming a requested MTU was granted.
+         */
+        fun negotiatedMtu(): Int? = null
     }
 
     // ----- DataProvider: live app data the handler can query -----

@@ -80,6 +80,11 @@ class GattScaleAdapter(
     private val ioMutex = Mutex()
 
     private var connectAttempts = 0
+    // StandardAuth frames carry sensitive authentication material. Keep the
+    // existing diagnostic previews for other scales, never for the S400.
+    private val redactPayloads = handler is MiScaleS400Handler
+    private fun payloadPreview(value: ByteArray): String =
+        if (redactPayloads) "[redacted]" else value.toHexPreview(24)
 
     init {
         // Worker coroutine processes queued BLE operations sequentially
@@ -181,7 +186,9 @@ class GattScaleAdapter(
             currentPeripheral = peripheral
 
             if (tuning.requestHighConnectionPriority) runCatching { peripheral.requestConnectionPriority(ConnectionPriority.HIGH) }
-            if (tuning.requestMtuBytes > 23) runCatching { peripheral.requestMtu(tuning.requestMtuBytes) }
+            // S400's initial FE95 management notification can be 244 bytes.
+            val requestedMtu = if (handler is MiScaleS400Handler) 247 else tuning.requestMtuBytes
+            if (requestedMtu > 23) runCatching { peripheral.requestMtu(requestedMtu) }
 
             val user = selectedUserSnapshot ?: run {
                 central.cancelConnection(peripheral); return
@@ -203,7 +210,7 @@ class GattScaleAdapter(
             characteristic: BluetoothGattCharacteristic,
             status: GattStatus
         ) {
-            LogManager.d(TAG,"\u2190 write response chr=${characteristic.uuid} len=${value.size} status=${status} ${value.toHexPreview(24)}")
+            LogManager.d(TAG,"\u2190 write response chr=${characteristic.uuid} len=${value.size} status=${status} ${payloadPreview(value)}")
 
             deferredMap[characteristic.uuid]?.let { op ->
                 op.deferred.complete(Unit)
@@ -230,7 +237,7 @@ class GattScaleAdapter(
             characteristic: BluetoothGattCharacteristic,
             status: GattStatus
         ) {
-            LogManager.d(TAG,"\u2190 received data chr=${characteristic.uuid} len=${value.size} status=${status} ${value.toHexPreview(24)}")
+            LogManager.d(TAG,"\u2190 received data chr=${characteristic.uuid} len=${value.size} status=${status} ${payloadPreview(value)}")
 
             handler.handleNotification(characteristic.uuid, value)
 
@@ -314,7 +321,7 @@ class GattScaleAdapter(
                 ioGap(if (withResponse) tuning.writeWithResponseDelayMs else tuning.writeWithoutResponseDelayMs)
                 p.writeCharacteristic(service, characteristic, payload, type)
 
-                LogManager.d(TAG,"\u2192 write to chr=$characteristic svc=$service len=${payload.size} withResp=$withResponse ${payload.toHexPreview(24)}")
+                LogManager.d(TAG,"\u2192 write to chr=$characteristic svc=$service len=${payload.size} withResp=$withResponse ${payloadPreview(payload)}")
 
                 try {
                     withTimeout(tuning.operationTimeoutMs.milliseconds) {
@@ -370,6 +377,19 @@ class GattScaleAdapter(
         }
 
         override fun getPeripheral(): BluetoothPeripheral? = currentPeripheral
+
+        /**
+         * ATT MTU the link actually negotiated.
+         *
+         * `requestMtu()` is asynchronous and its result is not reported to the handler,
+         * so the value is read from the peripheral on demand rather than assumed from
+         * `tuning.requestMtuBytes`. `null` means "not known yet", which callers must treat
+         * as the 23-byte default instead of assuming a large request was granted.
+         */
+        override fun negotiatedMtu(): Int? {
+            val mtu = currentPeripheral?.currentMtu ?: return null
+            return if (mtu > ScaleDeviceHandler.DEFAULT_ATT_MTU) mtu else null
+        }
 
         override fun hasCharacteristic(service: UUID, characteristic: UUID): Boolean {
             val p = currentPeripheral ?: return false

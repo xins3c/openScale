@@ -436,6 +436,26 @@
     <string name="s400_bind_key_description">The Xiaomi S400 scale requires a BLE bind key for decryption. Extract this key from Xiaomi Cloud using the Xiaomi Cloud Tokens Extractor tool.</string>
     <string name="s400_bind_key_error">Bind key must be exactly 32 hex characters</string>
     <string name="bt_s400_missing_bind_key">S400: Bind key not configured. Go to Bluetooth settings to enter your BLE key.</string>
+    <string name="s400_token_label">GATT device token</string>
+    <string name="s400_token_description">Enter the S400 device token obtained during pairing. This is separate from the BLE bind key used for advertisements.</string>
+    <string name="s400_token_error">Token must be exactly 24 hexadecimal characters</string>
+    <string name="bt_s400_missing_token">S400: Configure the GATT device token in Bluetooth settings before connecting.</string>
+    <string name="s400_identity_title">Xiaomi account mapping</string>
+    <string name="s400_identity_description">The scale only reports a measurement for the Xiaomi account it is switched to. Enter the account that belongs to this openScale user (existing profiles only — nothing is created or uploaded). If these values are missing or belong to another user, nothing is saved.</string>
+    <string name="s400_identity_miid_label">Xiaomi account ID (MIID)</string>
+    <string name="s400_identity_miid_error">Account ID must be a positive number, different from the device ID</string>
+    <string name="s400_identity_duid_label">Account slot (duid / accountCode)</string>
+    <string name="s400_identity_duid_error">Account slot must be a whole number from 0 to 255</string>
+    <string name="s400_identity_user_type_label">User type</string>
+    <string name="s400_identity_user_type_error">User type must be a whole number from 0 to 3</string>
+    <string name="s400_identity_user_type_hint">1 = account owner, 0 = family member</string>
+    <string name="s400_identity_mapped_user_label">Mapped openScale user ID</string>
+    <string name="s400_identity_mapped_user_hint">Results are saved only for this user. Use the app user ID of the profile above.</string>
+    <string name="s400_identity_mapped_user_error">Mapped user ID must be a positive number</string>
+    <string name="s400_identity_incomplete">Account mapping incomplete: fill every field to enable switching</string>
+    <string name="s400_identity_configured">Account mapping saved (account ••••%1$s)</string>
+    <string name="bt_s400_missing_identity">S400: Xiaomi account mapping not configured. The scale will not be switched and no measurement will be saved.</string>
+    <string name="bt_s400_identity_not_mapped">S400: The configured Xiaomi account belongs to a different openScale user. Select that user or update the mapping.</string>
 
     <!-- Huawei Hagrid Scale Configuration -->
     <string name="huawei_hagrid_secrets_title">Huawei Hagrid WSP secrets</string>
