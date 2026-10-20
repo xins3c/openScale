@@ -101,21 +101,6 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
 
     companion object {
         // Settings keys for S400 configuration
-        // Flat paths on purpose: the derived CSV column stays the ECW / ICW / BCM these
-        // quantities exported as when they were predefined. Colour, icon and unit match
-        // their former seeds, so nothing changes visually for anyone upgrading.
-        val EXTRACELLULAR_WATER = MeasurementType.devicePercent(
-            "ecw", R.string.measurement_type_ecw,
-            icon = MeasurementTypeIcon.IC_M_SCATTER_PLOT, color = 0xFF4FC3F7.toInt()
-        )
-        val INTRACELLULAR_WATER = MeasurementType.devicePercent(
-            "icw", R.string.measurement_type_icw,
-            icon = MeasurementTypeIcon.IC_M_BUBBLE_CHART, color = 0xFF0288D1.toInt()
-        )
-        val BODY_CELL_MASS = MeasurementType.deviceKg(
-            "bcm", R.string.measurement_type_bcm,
-            icon = MeasurementTypeIcon.IC_M_HIVE, color = 0xFF558B2F.toInt()
-        )
         val METABOLIC_AGE = MeasurementType.deviceInt(
             "metabolic_age", R.string.measurement_type_metabolic_age,
             icon = MeasurementTypeIcon.IC_M_PERSON, color = 0xFF8D6E63.toInt()
@@ -228,6 +213,18 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             val code = (plaintext[5].toInt() and 0xff) or
                 ((plaintext[6].toInt() and 0xff) shl 8)
             return ActionReply(sequence, code)
+        }
+
+        /**
+         * Xiaomi's "Standard Weight" (field `swt`): `(height - 80) * 0.7` for men and
+         * `(height - 70) * 0.6` for women, rounded to 0.1 kg. Verified against 46/46 records of a
+         * male profile in the vendor cloud. `null` for a height outside 50..250 cm, which would
+         * only produce a meaningless number (the profile default is -1).
+         */
+        internal fun standardWeightKg(heightCm: Float, male: Boolean): Float? {
+            if (!heightCm.isFinite() || heightCm !in 50f..250f) return null
+            val raw = if (male) (heightCm - 80.0) * 0.7 else (heightCm - 70.0) * 0.6
+            return (Math.floor(raw * 10.0 + 0.5 + 0.00001) / 10.0).toFloat().takeIf { it > 0f }
         }
 
         /** Mask an account id for display: only the last four characters remain. */
@@ -840,18 +837,34 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             userId = owner.id
             this[MeasurementType.WEIGHT] = Kg(result.weightKg)
             result.heartRate?.let { this[MeasurementType.HEART_RATE] = Bpm(it) }
-            this[MeasurementType.BODY_FAT] = Percent(result.bodyFatPercent)
-            this[MeasurementType.WATER] = Percent(result.bodyWaterPercent)
-            // openScale stores MUSCLE as percent; Xiaomi's SMM field is a mass in kg.
-            this[MeasurementType.MUSCLE] = Percent(result.skeletalMuscleKg / result.weightKg * 100f)
-            this[MeasurementType.BONE] = Kg(result.boneMassKg)
-            this[MeasurementType.LBM] = Kg(result.fatFreeMassKg)
-            this[MeasurementType.VISCERAL_FAT] = result.visceralFatLevel.toFloat()
-            this[MeasurementType.BMR] = Kcal(result.bmrKcal.toFloat())
-            this[MeasurementType.PROTEIN] = Percent(result.proteinPercent)
-            this[MeasurementType.IMPEDANCE] = Ohm(result.impedanceHighOhm)
-            this[MeasurementType.IMPEDANCE_LOW] = Ohm(result.impedanceLowOhm)
-            this[METABOLIC_AGE] = result.metabolicAge
+            // Body composition is only a measurement when the scale got an impedance reading.
+            // Without it the packet holds a weight and fields the firmware did not compute;
+            // publishing those would invite openScale's carry-over to fill the gaps from the
+            // previous weigh-in, producing a row that mixes two sessions.
+            if (result.hasComposition) {
+                this[MeasurementType.BODY_FAT] = Percent(result.bodyFatPercent)
+                this[MeasurementType.WATER] = Percent(result.bodyWaterPercent)
+                // Xiaomi Home shows field 24 (`slp`) as the muscle percentage; field 13 (`smm`)
+                // is skeletal muscle in kg and gives a different, much lower percentage. Prefer
+                // what the vendor app shows; fall back to smm only if the scale sent no `slp`.
+                this[MeasurementType.MUSCLE] = Percent(
+                    result.musclePercent ?: (result.skeletalMuscleKg / result.weightKg * 100f)
+                )
+                this[MeasurementType.BONE] = Kg(result.boneMassKg)
+                this[MeasurementType.LBM] = Kg(result.fatFreeMassKg)
+                this[MeasurementType.VISCERAL_FAT] = result.visceralFatLevel.toFloat()
+                this[MeasurementType.BMR] = Kcal(result.bmrKcal.toFloat())
+                this[MeasurementType.PROTEIN] = Percent(result.proteinPercent)
+                this[MeasurementType.IMPEDANCE] = Ohm(result.impedanceHighOhm)
+                this[MeasurementType.IMPEDANCE_LOW] = Ohm(result.impedanceLowOhm)
+                this[METABOLIC_AGE] = result.metabolicAge
+                // Not in the packet we use: Xiaomi derives it from the profile, so do the same.
+                standardWeightKg(owner.bodyHeight, owner.gender == GenderType.MALE)
+                    ?.let { this[IDEAL_WEIGHT] = Kg(it) }
+            }
+        }
+        if (!result.hasComposition) {
+            logW("S400 result has no impedance; publishing weight and pulse only")
         }
         publish(measurement)
         logI("S400 authenticated device result published")
@@ -1297,11 +1310,6 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             composition.metabolicAge?.let { this[METABOLIC_AGE] = it }
             composition.idealWeightKg?.let { this[IDEAL_WEIGHT] = Kg(it) }
 
-            // Dual-frequency BIA outputs (OpenScale exclusive, not in Xiaomi Home).
-            // ECW/ICW via Hanai mixture theory using R_low; BCM via Kotler 1996.
-            composition.ecwPct?.let { this[EXTRACELLULAR_WATER] = Percent(it) }
-            composition.icwPct?.let { this[INTRACELLULAR_WATER] = Percent(it) }
-            composition.bcmKg?.let { this[BODY_CELL_MASS] = Kg(it) }
         }
 
         publish(scaleMeasurement)

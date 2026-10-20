@@ -26,6 +26,25 @@ class S400SpecMeasurementTest {
         assertThat(value.bmrKcal).isEqualTo(1600)
         assertThat(value.impedanceHighOhm).isEqualTo(500f)
         assertThat(value.impedanceLowOhm).isEqualTo(450f)
+        assertThat(value.musclePercent).isEqualTo(65f)
+        assertThat(value.hasComposition).isTrue()
+    }
+
+    @Test fun missingImpedanceMeansNoComposition() {
+        fields[30] = "0"
+        assertThat(parse()!!.hasComposition).isFalse()
+        fields[30] = "5000"; fields[31] = "0"
+        assertThat(parse()!!.hasComposition).isFalse()
+    }
+
+    @Test fun absentMusclePercentIsNullNotZero() {
+        fields[24] = "0"
+        assertThat(parse()!!.musclePercent).isNull()
+    }
+
+    @Test fun rejectsMusclePercentAboveOneHundred() {
+        fields[24] = "1500"
+        assertThat(parse()).isNull()
     }
 
     @Test fun rejectsTruncatedOrNonNumeric() {

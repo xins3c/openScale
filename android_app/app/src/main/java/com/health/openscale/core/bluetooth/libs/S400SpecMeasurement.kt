@@ -19,6 +19,8 @@ data class S400SpecMeasurement(
     val visceralFatLevel: Int,
     val proteinPercent: Float,
     val skeletalMuscleKg: Float,
+    /** Field 24 (`slp`): the muscle percentage Xiaomi Home shows. Null when the scale sent none. */
+    val musclePercent: Float?,
     val bmi: Float,
     val bmrKcal: Int,
     val metabolicAge: Int,
@@ -35,6 +37,13 @@ data class S400SpecMeasurement(
     /** Validated `userType` (field 2), same purpose as [miid]. */
     val userType: Int = -1,
 ) {
+    /**
+     * True when the scale measured body composition (both impedances present). Without it the
+     * packet carries a weight and little else; anything else in it is not a measurement.
+     */
+    val hasComposition: Boolean
+        get() = impedanceHighOhm > 0f && impedanceLowOhm > 0f
+
     companion object {
         /**
          * The 32 CSV positions are from Xiaomi Home's `event.8.2` handler
@@ -71,6 +80,7 @@ data class S400SpecMeasurement(
             val protein = tenth(12) ?: return null
             val muscle = tenth(13) ?: return null
             val bmi = tenth(14) ?: return null
+            val musclePercent = tenth(24)?.takeIf { it > 0f }
             val bmr = integer(20) ?: return null
             val age = integer(22) ?: return null
             val ffm = tenth(27) ?: return null
@@ -81,12 +91,13 @@ data class S400SpecMeasurement(
             if (user < 0 || userType !in 0..3 || time <= 0 || weight !in 2f..350f ||
                 heart !in 0..250 || bfp !in 0f..100f ||
                 water !in 0f..100f || protein !in 0f..100f ||
+                (musclePercent != null && musclePercent !in 0f..100f) ||
                 bone < 0 || slm < 0 || muscle < 0 || ffm < 0 ||
                 visceral !in 0..100 || bmr !in 0..10000 || age !in 0..150 ||
                 high < 0 || low < 0 || bmi !in 0f..150f) return null
             return S400SpecMeasurement(
                 user, weight, heart.takeIf { it > 0 }, status, time, bfp,
-                slm, water, bone, visceral, protein, muscle, bmi,
+                slm, water, bone, visceral, protein, muscle, musclePercent, bmi,
                 bmr, age, ffm, waterMass, proteinMass, high, low,
                 miid, userType,
             )

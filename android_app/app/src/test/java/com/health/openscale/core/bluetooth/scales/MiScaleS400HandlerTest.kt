@@ -72,7 +72,7 @@ class MiScaleS400HandlerTest {
     private val tokenHex = "00112233445566778899aabb"
 
     private val token: ByteArray = hex(tokenHex)
-    private val appUser = ScaleUser(id = 7, userName = "Session User")
+    private val appUser = ScaleUser(id = 7, userName = "Session User", bodyHeight = 185f)
     private val otherUser = ScaleUser(id = 9, userName = "Other User")
 
     private val devRandom = hex("b0b1b2b3b4b5b6b7b8b9babbbcbdbebf")
@@ -162,6 +162,7 @@ class MiScaleS400HandlerTest {
      * @param identity `true` to configure the synthetic mapping for [appUser], `false` to leave
      *   every identity key empty.
      * @param mappedUser openScale user id overriding the mapping's app-user association.
+     * @param user the openScale user the link is opened for (height/sex feed the standard weight).
      */
     private fun setup(
         mtu: Int? = null,
@@ -171,11 +172,12 @@ class MiScaleS400HandlerTest {
         miid: String = testMiid,
         duid: Int = testDuid,
         userType: Int = testUserType,
+        user: ScaleUser = appUser,
     ): Setup {
         val handler = MiScaleS400Handler()
         val transport = RecordingTransport(mtu)
         val callbacks = RecordingCallbacks()
-        val provider = SwitchableProvider(appUser)
+        val provider = SwitchableProvider(user)
         val values = mutableMapOf<String, String>()
         if (token != null) values[tokenKey] = token
         if (identity) {
@@ -202,6 +204,9 @@ class MiScaleS400HandlerTest {
         duid: Int = testDuid,
         userType: Int = testUserType,
         time: Long = 1700000000L,
+        slp: String = "715",
+        impedanceHigh: String = "512",
+        impedanceLow: String = "498",
     ): String = listOf(
         miid,         // 0  miid
         "$duid",      // 1  device user id (duid / accountCode)
@@ -222,12 +227,12 @@ class MiScaleS400HandlerTest {
         "1650",       // 20 bmr
         "1",          // 21 body type
         "34",         // 22 metabolic age
-        "1", "1", "1", "1", // 23..26
+        "1", slp, "1", "1", // 23..26 (24 = slp, the muscle % Xiaomi shows)
         "640",        // 27 fat free mass
         "500",        // 28 body water mass
         "120",        // 29 protein mass
-        "512",        // 30 impedance high
-        "498",        // 31 impedance low
+        impedanceHigh, // 30 impedance high
+        impedanceLow,  // 31 impedance low
     ).joinToString(",")
 
     /** Build the decrypted MIoT envelope for one event: `07 siid eiid 00 01 02 00 81 a0 csv`. */
@@ -296,7 +301,7 @@ class MiScaleS400HandlerTest {
      * echoed reply are left to the caller so ordering can be tested explicitly.
      */
     private fun Setup.driveToLogin(): ByteArray {
-        handler.handleConnected(appUser)
+        handler.handleConnected(provider.current)
 
         // Two *distinct* management frames start StandardAuth.
         notify(authCharacteristic, S400ChannelCodec.management(0, hex("0102")))
@@ -648,6 +653,93 @@ class MiScaleS400HandlerTest {
         assertThat(measurement[MeasurementType.WEIGHT]!!.value).isWithin(1e-3f).of(81.2f)
         assertThat(measurement[MeasurementType.BODY_FAT]!!.value).isWithin(1e-3f).of(21.5f)
         assertThat(measurement[MeasurementType.HEART_RATE]!!.value).isEqualTo(68)
+    }
+
+    @Test
+    fun `muscle percentage follows the vendor slp field`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0)
+
+        // slp = 71.5 %, not smm/weight (34.0 kg of 81.2 kg = 41.9 %).
+        assertThat(s.callbacks.published.single()[MeasurementType.MUSCLE]!!.value).isWithin(1e-3f).of(71.5f)
+    }
+
+    @Test
+    fun `muscle percentage falls back to skeletal muscle when slp is absent`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0, csv = syntheticCsv(0, slp = "0"))
+
+        assertThat(s.callbacks.published.single()[MeasurementType.MUSCLE]!!.value)
+            .isWithin(0.01f).of(340f / 812f * 100f)
+    }
+
+    @Test
+    fun `standard weight is derived from the profile and published with a full result`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0)
+
+        // (185 - 80) * 0.7 = 73.5 kg for the male test profile.
+        assertThat(s.callbacks.published.single()[MiScaleS400Handler.IDEAL_WEIGHT]!!.value)
+            .isWithin(1e-3f).of(73.5f)
+    }
+
+    @Test
+    fun `standard weight is omitted when the profile has no usable height`() {
+        val s = setup(user = appUser.copy(bodyHeight = -1f))
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0)
+
+        val m = s.callbacks.published.single()
+        assertThat(MiScaleS400Handler.IDEAL_WEIGHT in m).isFalse()
+        assertThat(m[MeasurementType.BODY_FAT]).isNotNull()
+    }
+
+    @Test
+    fun `result without impedance publishes weight and pulse only`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0,
+            csv = syntheticCsv(0, impedanceHigh = "0", impedanceLow = "0"))
+
+        val m = s.callbacks.published.single()
+        assertThat(m[MeasurementType.WEIGHT]!!.value).isWithin(1e-3f).of(81.2f)
+        assertThat(m[MeasurementType.HEART_RATE]!!.value).isEqualTo(68)
+        listOf(
+            MeasurementType.BODY_FAT, MeasurementType.WATER, MeasurementType.MUSCLE,
+            MeasurementType.BONE, MeasurementType.LBM, MeasurementType.VISCERAL_FAT,
+            MeasurementType.BMR, MeasurementType.PROTEIN,
+            MeasurementType.IMPEDANCE, MeasurementType.IMPEDANCE_LOW,
+        ).forEach { assertThat(it in m).isFalse() }
+        assertThat(MiScaleS400Handler.METABOLIC_AGE in m).isFalse()
+        assertThat(MiScaleS400Handler.IDEAL_WEIGHT in m).isFalse()
+    }
+
+    @Test
+    fun `one missing impedance band counts as no composition`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0,
+            csv = syntheticCsv(0, impedanceHigh = "512", impedanceLow = "0"))
+
+        assertThat(MeasurementType.BODY_FAT in s.callbacks.published.single()).isFalse()
+    }
+
+    @Test
+    fun `standard weight matches the vendor formula for both sexes`() {
+        assertThat(MiScaleS400Handler.standardWeightKg(185f, male = true)).isEqualTo(73.5f)
+        assertThat(MiScaleS400Handler.standardWeightKg(165f, male = false)).isEqualTo(57.0f)
+        assertThat(MiScaleS400Handler.standardWeightKg(-1f, male = true)).isNull()
+        assertThat(MiScaleS400Handler.standardWeightKg(40f, male = false)).isNull()
+        assertThat(MiScaleS400Handler.standardWeightKg(Float.NaN, male = true)).isNull()
     }
 
     @Test
