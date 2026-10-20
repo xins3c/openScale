@@ -1,0 +1,4 @@
+# Exports contain the owner's health data; never commit them.
+s400_xiaomi_history*.json
+*.json
+__pycache__/
