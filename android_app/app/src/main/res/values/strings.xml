@@ -441,7 +441,7 @@
     <string name="s400_token_error">Token must be exactly 24 hexadecimal characters</string>
     <string name="bt_s400_missing_token">S400: Configure the GATT device token in Bluetooth settings before connecting.</string>
     <string name="s400_identity_title">Xiaomi account mapping</string>
-    <string name="s400_identity_description">The scale only reports a measurement for the Xiaomi account it is switched to. Enter the account that belongs to this openScale user (existing profiles only — nothing is created or uploaded). If these values are missing or belong to another user, nothing is saved.</string>
+    <string name="s400_identity_description">The scale only reports a measurement for the Xiaomi account it is switched to. Enter the account that belongs to this openScale user (existing profiles only — nothing is created or uploaded). If these values are missing or belong to another user, nothing is saved. A member added from the scale screen uses the account owner\'s MIID with the member\'s own slot and type. The identity is read once per connection: after changing it or the person, disconnect the scale and reconnect before weighing.</string>
     <string name="s400_identity_miid_label">Xiaomi account ID (MIID)</string>
     <string name="s400_identity_miid_error">Account ID must be a positive number, different from the device ID</string>
     <string name="s400_identity_duid_label">Account slot (duid / accountCode)</string>

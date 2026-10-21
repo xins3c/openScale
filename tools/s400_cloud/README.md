@@ -31,6 +31,48 @@ lines to type into openScale. The scale stores slot numbers only; names exist
 only in the cloud. Birth date, height and sex are never printed.
 Confirmed working against a real account.
 
+### Which MIID goes into openScale
+
+The MIID that `scale_users.py` prints for a row is the cloud `accountId` of that row. It is
+**not necessarily what the scale is sent**. Xiaomi Home has two ways to add a person, and only
+one of them has been checked on the wire:
+
+| How the person was added | MIID to enter in openScale | Status |
+|---|---|---|
+| **Member added from the scale's own screen** in Xiaomi Home (no Xiaomi account of their own) | The **account owner's** MIID, with that member's own slot (`duid`) and `userType` | Verified: a decrypted Bluetooth capture of Xiaomi Home shows `switchUser` carrying the owner's MIID with the member's slot and type, and openScale then stored a complete weigh-in for that member using exactly this combination |
+| **Family-account member who has their own Xiaomi account** (invited from the Home dashboard) | Probably their own MIID | **Not verified**: never captured. Treat as unknown until someone tests it |
+
+Observed values on the verified setup: owner = slot 1 / type 1, first member = slot 2 / type 2.
+The user-type hint in the app used to say "0 = family member"; no real traffic supports a `0`,
+and `duid` 0 is what the scale sends when it did not attribute a weigh-in, so openScale now
+rejects it. Slots and types come from your own `scale_users.py` run; do not copy the numbers above.
+
+### Several people, one scale
+
+Each person uses their own openScale instance (or their own openScale user) holding **one**
+identity: MIID, slot, user type and the mapped openScale user. TOKEN and BLE KEY are the scale
+owner's and are shared; they give access to the whole scale, not only to one profile, so hand
+them over deliberately.
+
+What was observed with two people on the same scale:
+
+- With the right identity selected and a **fresh connection**, both the owner and the member got
+  a complete result (composition, BMI, pulse).
+- openScale reads the identity **once per connection**. Editing the identity fields or switching
+  the openScale user while the scale is still connected sends no new `switchUser`; the scale
+  stays on the previous slot, and a different person stepping on gets `status 2` (weight only,
+  nothing saved). **Disconnect the scale and reconnect before the next person weighs in.**
+- Not known: whether the scale would accept a second `switchUser` inside the same connection, so
+  the reconnect is the safe rule, not a proven requirement.
+- The earlier "secondary profiles never work" results came from tests where the owner and the
+  member both stepped on the scale. Always note **who stood on it** before reading a `status 2`
+  as a bug.
+- Evidence so far is consistent with the scale checking the measured weight against the base
+  weight stored for the active slot, but that is an inference: it was not isolated from other
+  explanations, and the tolerance is unknown (a difference under ~0.5 kg was attributed, over
+  ~6 kg was not). The fork never updates that stored weight; Xiaomi Home does after each weigh-in.
+- Two phones connecting to the scale at the same time have not been tested.
+
 ## `scale_history.py` - compare weigh-ins with Xiaomi
 
 ```sh
