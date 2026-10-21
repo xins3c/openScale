@@ -445,10 +445,10 @@
     <string name="s400_identity_miid_label">Xiaomi account ID (MIID)</string>
     <string name="s400_identity_miid_error">Account ID must be a positive number, different from the device ID</string>
     <string name="s400_identity_duid_label">Account slot (duid / accountCode)</string>
-    <string name="s400_identity_duid_error">Account slot must be a whole number from 0 to 255</string>
+    <string name="s400_identity_duid_error">Account slot must be a whole number from 1 to 255 (0 means the scale did not attribute the weigh-in)</string>
     <string name="s400_identity_user_type_label">User type</string>
     <string name="s400_identity_user_type_error">User type must be a whole number from 0 to 3</string>
-    <string name="s400_identity_user_type_hint">1 = account owner, 0 = family member</string>
+    <string name="s400_identity_user_type_hint">1 = account owner, family members are usually 2 — use the value scale_users.py prints</string>
     <string name="s400_identity_mapped_user_label">Mapped openScale user ID</string>
     <string name="s400_identity_mapped_user_hint">Results are saved only for this user. Use the app user ID of the profile above.</string>
     <string name="s400_identity_mapped_user_error">Mapped user ID must be a positive number</string>

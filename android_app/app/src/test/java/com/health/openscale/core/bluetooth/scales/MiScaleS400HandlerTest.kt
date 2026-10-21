@@ -530,6 +530,7 @@ class MiScaleS400HandlerTest {
         assertThat(MiScaleS400Handler.parseIdentity("0", "2", "1", "7")).isNull()
         assertThat(MiScaleS400Handler.parseIdentity("abc", "2", "1", "7")).isNull()
         assertThat(MiScaleS400Handler.parseIdentity("1234567890", "256", "1", "7")).isNull()
+        assertThat(MiScaleS400Handler.parseIdentity("1234567890", "0", "1", "7")).isNull()
         assertThat(MiScaleS400Handler.parseIdentity("1234567890", "2", "4", "7")).isNull()
         assertThat(MiScaleS400Handler.parseIdentity("1234567890", "2", "1", "0")).isNull()
     }

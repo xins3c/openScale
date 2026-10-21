@@ -126,7 +126,9 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
          *                 from the scale's device id / MAC.
          *  * `duid`     — Xiaomi `accountCode`, the per-account slot the firmware stores
          *                 (uint8, sent as `uid` in 6.6).
-         *  * `userType` — firmware user type for that slot (uint8; 1 = owner, 0 = member).
+         *  * `userType` — firmware user type for that slot (uint8). Verified live: 1 = owner,
+         *                 family members are 2 (guest-like profiles added from the scale screen).
+         *                 0 has not been observed in real traffic; treat as unknown.
          *  * `appUserId`— the openScale `ScaleUser.id` this identity belongs to. Results are
          *                 only saved for that user, and only that user may trigger the switch.
          */
@@ -175,7 +177,7 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             val typeValue = userType?.trim()?.takeIf { it.isNotEmpty() }?.toIntOrNull() ?: return null
             val userValue = appUserId?.trim()?.takeIf { it.isNotEmpty() }?.toIntOrNull() ?: return null
             if (miidValue <= 0) return null
-            if (duidValue !in 0..0xFF) return null
+            if (duidValue !in 1..0xFF) return null
             if (typeValue !in 0..MAX_USER_TYPE) return null
             if (userValue <= 0) return null
             return S400Identity(miidValue, duidValue, typeValue, userValue)
