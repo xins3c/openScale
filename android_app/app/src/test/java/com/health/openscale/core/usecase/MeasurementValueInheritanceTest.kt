@@ -227,6 +227,32 @@ class MeasurementValueInheritanceTest {
     }
 
     @Test
+    fun inherits_skipsTypesTheSourceDeviceMeasuresItself() = runBlocking {
+        val bodyFatId = repo.getAllMeasurementTypes().first().first { it.key == MeasurementType.BODY_FAT }.id
+        insertHistory(1_000L, float(weightId, 70f), float(bodyFatId, 20f), float(waistId, 90f))
+
+        val result = transformation.applyValueInheritance(
+            incoming(2_000L), listOf(float(weightId, 71f)),
+            noCarryOver = setOf(MeasurementType.BODY_FAT.identity),
+        )
+
+        // Body fat is something the scale measures: absent now means unknown, not unchanged.
+        assertThat(result.none { it.typeId == bodyFatId }).isTrue()
+        // A hand-kept value is still inherited.
+        assertThat(result.floatOf(waistId)).isEqualTo(90f)
+    }
+
+    @Test
+    fun inherits_defaultStillCopiesEverythingEligible() = runBlocking {
+        val bodyFatId = repo.getAllMeasurementTypes().first().first { it.key == MeasurementType.BODY_FAT }.id
+        insertHistory(1_000L, float(weightId, 70f), float(bodyFatId, 20f))
+
+        val result = transformation.applyValueInheritance(incoming(2_000L), listOf(float(weightId, 71f)))
+
+        assertThat(result.floatOf(bodyFatId)).isEqualTo(20f)
+    }
+
+    @Test
     fun inherits_coversNumericCustomTypesButNoOthers() = runBlocking {
         val customFloatId = repo.insertMeasurementType(
             MeasurementType(identity = "user.blood_pressure", name = "Blood pressure",

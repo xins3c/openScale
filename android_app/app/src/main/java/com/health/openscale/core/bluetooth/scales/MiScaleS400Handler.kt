@@ -227,6 +227,14 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             return (Math.floor(raw * 10.0 + 0.5 + 0.00001) / 10.0).toFloat().takeIf { it > 0f }
         }
 
+        /** Quantities the S400 reports itself; see [ScaleMeasurement.noCarryOver]. */
+        private val S400_MEASURED_KEYS: Set<MeasurementType.Key<*>> = setOf(
+            MeasurementType.HEART_RATE, MeasurementType.BODY_FAT, MeasurementType.WATER,
+            MeasurementType.MUSCLE, MeasurementType.BONE, MeasurementType.LBM,
+            MeasurementType.VISCERAL_FAT, MeasurementType.PROTEIN,
+            METABOLIC_AGE, IDEAL_WEIGHT,
+        )
+
         /** Mask an account id for display: only the last four characters remain. */
         internal fun maskAccountId(value: String): String =
             if (value.length <= 4) "••••" else "••••" + value.takeLast(4)
@@ -835,6 +843,9 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
         val measurement = ScaleMeasurement().apply {
             dateTime = Date()
             userId = owner.id
+            // What the S400 measures is never carried over from an earlier weigh-in, whether or
+            // not this packet had it: a missing value is unknown, not unchanged.
+            noCarryOver += S400_MEASURED_KEYS
             this[MeasurementType.WEIGHT] = Kg(result.weightKg)
             result.heartRate?.let { this[MeasurementType.HEART_RATE] = Bpm(it) }
             // Body composition is only a measurement when the scale got an impedance reading.
@@ -864,7 +875,7 @@ class MiScaleS400Handler : ScaleDeviceHandler() {
             }
         }
         if (!result.hasComposition) {
-            logW("S400 result has no impedance; publishing weight and pulse only")
+            logW("S400 result has no impedance; publishing weight only (pulse if the packet has one)")
         }
         publish(measurement)
         logI("S400 authenticated device result published")

@@ -252,20 +252,21 @@ class MeasurementFacade @Inject constructor(
     suspend fun saveMeasurementFromBleDevice(
         measurement: Measurement,
         values: List<MeasurementValue>,
+        noCarryOver: Set<String> = emptySet(),
     ) {
         val ref = pendingReferenceUser
         if (ref != null) {
             val finalValues = transformation.applyAssistedWeighing(measurement, values, ref)
             crud.saveMeasurement(
                 measurement,
-                transformation.applyValueInheritance(measurement, finalValues)
+                transformation.applyValueInheritance(measurement, finalValues, noCarryOver)
             )
         } else {
             val finalMeasurement = transformation.applySmartUserAssignment(measurement, values)
             if (finalMeasurement != null) {
                 crud.saveMeasurement(
                     finalMeasurement,
-                    transformation.applyValueInheritance(finalMeasurement, values)
+                    transformation.applyValueInheritance(finalMeasurement, values, noCarryOver)
                 )
             }
         }

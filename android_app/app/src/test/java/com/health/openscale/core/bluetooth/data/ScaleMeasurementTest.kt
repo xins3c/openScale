@@ -86,4 +86,28 @@ class ScaleMeasurementTest {
         assertThat(published[MeasurementType.WEIGHT]?.value).isEqualTo(72.5f)
         assertThat(published.values).hasSize(1)
     }
+
+    @Test
+    fun `noCarryOver is empty by default so other scales keep today's behaviour`() {
+        assertThat(ScaleMeasurement().noCarryOver).isEmpty()
+    }
+
+    @Test
+    fun `noCarryOver survives snapshot and merge`() {
+        val acc = ScaleMeasurement().apply { noCarryOver += MeasurementType.BODY_FAT }
+
+        assertThat(acc.snapshot().noCarryOver).containsExactly(MeasurementType.BODY_FAT)
+
+        val target = ScaleMeasurement().apply { noCarryOver += MeasurementType.WATER }
+        target.mergeWith(acc)
+        assertThat(target.noCarryOver).containsExactly(MeasurementType.WATER, MeasurementType.BODY_FAT)
+    }
+
+    @Test
+    fun `snapshot noCarryOver is detached from the accumulator`() {
+        val acc = ScaleMeasurement().apply { noCarryOver += MeasurementType.BODY_FAT }
+        val published = acc.snapshot()
+        acc.noCarryOver.clear()
+        assertThat(published.noCarryOver).containsExactly(MeasurementType.BODY_FAT)
+    }
 }

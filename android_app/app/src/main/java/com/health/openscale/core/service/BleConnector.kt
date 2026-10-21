@@ -529,7 +529,9 @@ class BleConnector(
             }
 
             try {
-                val measurementId = measurementFacade.saveMeasurementFromBleDevice(newDbMeasurement, values)
+                val measurementId = measurementFacade.saveMeasurementFromBleDevice(
+                    newDbMeasurement, values, measurementData.noCarryOver.map { it.identity }.toSet()
+                )
                 LogManager.i(
                     TAG,
                     "Measurement from $deviceName for User $currentAppUserId saved (ID: $measurementId). Values: ${values.size}"

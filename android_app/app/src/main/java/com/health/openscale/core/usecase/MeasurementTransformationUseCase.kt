@@ -383,6 +383,8 @@ class MeasurementTransformationUseCase @Inject constructor(
      * - Derived types (BMI, BMR, …) are dropped — they are recomputed from the raw values.
      * - Internal (impedance) and disabled types are dropped: raw device input, stale the moment it
      *   is copied.
+     * - Types named in [noCarryOver] are dropped: the source device measures them itself, so a gap
+     *   means "not measured this time", not "unchanged since last time".
      *
      * The weight needs no special case: every scale reports one, so on the sync path it is already
      * in [values] and is left alone. Only the form pre-fill passes an empty [values] and therefore
@@ -394,7 +396,8 @@ class MeasurementTransformationUseCase @Inject constructor(
      */
     suspend fun applyValueInheritance(
         measurement: Measurement,
-        values: List<MeasurementValue>
+        values: List<MeasurementValue>,
+        noCarryOver: Set<String> = emptySet()
     ): List<MeasurementValue> {
         // History is ordered newest → oldest, so the first strictly older entry is the predecessor.
         val previous = query.getMeasurementsForUser(measurement.userId).first()
@@ -409,6 +412,7 @@ class MeasurementTransformationUseCase @Inject constructor(
             val type = previousValue.type
             if (type.id in presentTypeIds) return@mapNotNull null
             if (type.isDerived || type.isInternal || !type.isEnabled) return@mapNotNull null
+            if (type.identity in noCarryOver) return@mapNotNull null
 
             when (type.inputType) {
                 InputFieldType.FLOAT -> previousValue.value.floatValue

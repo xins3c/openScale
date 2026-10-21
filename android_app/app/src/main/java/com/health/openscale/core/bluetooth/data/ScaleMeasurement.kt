@@ -52,6 +52,13 @@ class ScaleMeasurement(
 ) {
 
     /**
+     * Quantities this scale measures itself. When a weigh-in lacks one of them the value is simply
+     * unknown: openScale's carry-over must not fill it from the previous weigh-in, which would
+     * file a row that mixes two sessions. Empty by default, so other scales are unaffected.
+     */
+    val noCarryOver: MutableSet<MeasurementType.Key<*>> = LinkedHashSet()
+
+    /**
      * Records a value; silently drops what never describes a real measurement (see class
      * doc). The value's type is the unit contract — the connector unwraps and converts to
      * the user's configured unit once, centrally.
@@ -83,6 +90,7 @@ class ScaleMeasurement(
      */
     fun mergeWith(other: ScaleMeasurement) = apply {
         other.values.forEach { (key, value) -> values.putIfAbsent(key, value) }
+        noCarryOver += other.noCarryOver
 
         if (other.userId != 0xFF &&
             (this.userId == 0xFF || this.userId == -1)) { // -1 was a common init value
@@ -95,7 +103,8 @@ class ScaleMeasurement(
      * Deep copy for handlers that publish while continuing to mutate their accumulator —
      * the map is detached, so later mutations never bleed into published data.
      */
-    fun snapshot(): ScaleMeasurement = ScaleMeasurement(userId, dateTime, LinkedHashMap(values))
+    fun snapshot(): ScaleMeasurement =
+        ScaleMeasurement(userId, dateTime, LinkedHashMap(values)).also { it.noCarryOver += noCarryOver }
 
     override fun toString(): String =
         "ScaleMeasurement(userId=$userId, dateTime=$dateTime, " +

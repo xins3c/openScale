@@ -723,6 +723,25 @@ class MiScaleS400HandlerTest {
     }
 
     @Test
+    fun `measured quantities are never carried over`() {
+        val s = setup()
+        val key = s.driveToReady()
+
+        s.deliverResult(key, siid = 8, eiid = 2, status = 0,
+            csv = syntheticCsv(0, impedanceHigh = "0", impedanceLow = "0"))
+
+        val m = s.callbacks.published.single()
+        listOf(
+            MeasurementType.HEART_RATE, MeasurementType.BODY_FAT, MeasurementType.WATER,
+            MeasurementType.MUSCLE, MeasurementType.BONE, MeasurementType.LBM,
+            MeasurementType.VISCERAL_FAT, MeasurementType.PROTEIN,
+            MiScaleS400Handler.METABOLIC_AGE, MiScaleS400Handler.IDEAL_WEIGHT,
+        ).forEach { assertThat(it in m.noCarryOver).isTrue() }
+        // Weight is always in the packet; BMR/impedance are not carried over by the framework anyway.
+        assertThat(MeasurementType.WEIGHT in m.noCarryOver).isFalse()
+    }
+
+    @Test
     fun `one missing impedance band counts as no composition`() {
         val s = setup()
         val key = s.driveToReady()
